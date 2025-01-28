@@ -1,0 +1,6 @@
+com\mycompany\mavenproject2\HttpServer.class
+com\mycompany\mavenproject2\EchoServer.class
+com\mycompany\mavenproject2\Echoclient.class
+com\mycompany\mavenproject2\Webserver.class
+com\mycompany\mavenproject2\URLReader.class
+com\mycompany\mavenproject2\URLParser.class
