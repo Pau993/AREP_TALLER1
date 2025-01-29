@@ -13,87 +13,84 @@ import java.io.*;
 
 public class HttpServer {
 
-    public static void main(String[] args) throws IOException, URISyntaxException {
+    public static void main(String[] args) throws IOException {
         ServerSocket serverSocket = null;
+
         try {
-            //Escuchar o intenetar conectarse al 35000
             serverSocket = new ServerSocket(35000);
         } catch (IOException e) {
             System.err.println("Could not listen on port: 35000.");
             System.exit(1);
         }
 
-        //Recibe las peticiones que haga al localhost
         boolean running = true;
-        Socket clientSocket = null;
         while (running) {
-            
-            try {
-                System.out.println("Listo para recibir ...");
-                clientSocket = serverSocket.accept(); //Si hay conexión devuelve el socket
+            System.out.println("Listo para recibir ...");
+
+            try (Socket clientSocket = serverSocket.accept();
+                 PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
+                 BufferedReader in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()))) {
+
+                String inputLine;
+                boolean isFirstLine = true;
+                String requestedFile = "";
+
+                while ((inputLine = in.readLine()) != null) {
+                    if (isFirstLine) {
+                        requestedFile = inputLine.split(" ")[1];
+                        isFirstLine = false;
+                    }
+                    if (!in.ready()) {
+                        break;
+                    }
+                }
+
+                // Manejo de rutas
+                if (requestedFile.startsWith("/app/hello")) {
+                    String query = requestedFile.contains("?") ? requestedFile.split("\\?", 2)[1] : null;
+                    String response = helloRestService(requestedFile, query);
+                    out.println(response);
+                } else if (requestedFile.equals("/")) {
+                    out.println(returnIndex());
+                } else {
+                    serveFile(out, requestedFile);
+                }
+
             } catch (IOException e) {
-                System.err.println("Accept failed." + e.getMessage());
-                System.exit(1);
+                System.err.println("Error handling client: " + e.getMessage());
             }
-
-            //Los convierte en binario para luego traducirlo a String
-
-            
-            PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
-            System.out.println(out); //Envia al Browser
-
-            //Almacena caracteres en memoria
-
-            //Hasta que deja de recibir caracteres que deja de leer, comunicaciones en la que no se sabe cuando dejar de recibir datos
-            BufferedReader in = new BufferedReader(
-                    new InputStreamReader(
-                            clientSocket.getInputStream()));
-            String inputLine, outputLine;
-
-            boolean isFirstLine = true;
-            String file = "";
-
-            //Imprimir linea por linea los mensajes, imprimir el mensaje que me inyectó
-            while ((inputLine = in.readLine()) != null) {
-
-                if (isFirstLine) {
-                    file = inputLine.split(" ")[1]; //Segunda linea de la cadena
-                    isFirstLine = false;
-                }
-
-                System.out.println("Received: " + inputLine);
-                if (!in.ready()) {
-                    break;
-                }
-            }
-
-            //URI más básico que la url, no establece el protocolo con el que se está hablando, tiene un componente cercano al URL
-            //Todas las URL son URI, pero no todas las URI son URL
-            URI requestedFile = new URI(file);
-            System.out.println("file: " + requestedFile);
-            
-
-            if (requestedFile.getPath().startsWith("/app/hello")) {
-                System.out.println("---------------------------" + requestedFile.getPath() + "----------------" + requestedFile.getQuery());
-                outputLine = helloRestService(requestedFile.getPath(), requestedFile.getQuery());
-                outputLine = helloRestService(requestedFile.getPath(), requestedFile.readFile());
-                out.println(outputLine);
-
-            
-            } else {
-                //La primera linea del mensaje viene la dirección
-                outputLine = returnIndex();
-                out.println(outputLine);
-            }
-            out.close();
-            in.close();
         }
-            clientSocket.close();
-            serverSocket.close();
-        
+
+        serverSocket.close();
     }
 
-    private static String returnIndex(){
+    private static void serveFile(PrintWriter out, String filePath) {
+        String baseDir = System.getProperty("user.dir") + "/src/main/resources"; // Cambia según tu estructura
+        File file = new File(baseDir, filePath);
+
+        if (!file.exists() || file.isDirectory()) {
+            out.println("HTTP/1.1 404 Not Found\r\n");
+            out.println("Content-Type: text/html\r\n\r\n");
+            out.println("<h1>404 Not Found</h1>");
+            return;
+        }
+
+        try (BufferedReader fileReader = new BufferedReader(new FileReader(file))) {
+            String contentType = getContentType(filePath);
+            out.println("HTTP/1.1 200 OK\r\n");
+            out.println("Content-Type: " + contentType + "\r\n\r\n");
+
+            String line;
+            while ((line = fileReader.readLine()) != null) {
+                out.println(line);
+            }
+        } catch (IOException e) {
+            out.println("HTTP/1.1 500 Internal Server Error\r\n\r\n");
+            out.println("<h1>500 Internal Server Error</h1>");
+        }
+    }
+
+    private static String returnIndex() {
         return "HTTP/1.1 200 OK\r\n"
                         + "Content-Type: text/html\r\n"
                         + "\r\n"
@@ -148,20 +145,32 @@ public class HttpServer {
                         + "</html>";
     }
 
-    private static File readFile(String file){
-        String carpeta = System.getProperty("user.dir");
-        File carpetaLeer = new File(carpeta + "mavenproject2\\src\\main\\java\\com\\mycompany\\mavenproject2\\Files\\" + file);
-        return carpetaLeer;
-        
+    private static String getContentType(String filePath) {
+        if (filePath.endsWith(".html") || filePath.endsWith(".htm")) {
+            return "text/html";
+        } else if (filePath.endsWith(".css")) {
+            return "text/css";
+        } else if (filePath.endsWith(".js")) {
+            return "application/javascript";
+        } else if (filePath.endsWith(".jpg") || filePath.endsWith(".jpeg")) {
+            return "image/jpeg";
+        } else if (filePath.endsWith(".png")) {
+            return "image/png";
+        } else if (filePath.endsWith(".gif")) {
+            return "image/gif";
+        } else {
+            return "application/octet-stream";
+        }
     }
 
-    //La llave nos indica que nos atraiga el valor de donde está corriendo el archivo
-
     private static String helloRestService(String path, String query) {
-        String response = "HTTP/1.1 200 OK\r\n"
-                + "Content-Type: aplication/json\r\n"
-                + "\r\n"
-                + "{\"name\":\"John\", \"age\":30, \"car\":" + System.getProperty("user.dir") + "}";
-        return response;
+        String name = "Guest";
+        if (query != null && query.startsWith("name=")) {
+            name = query.split("=", 2)[1];
+        }
+
+        return "HTTP/1.1 200 OK\r\n"
+                + "Content-Type: application/json\r\n\r\n"
+                + "{\"message\":\"Hello, " + name + "!\"}";
     }
 }
